@@ -54,13 +54,8 @@ typedef struct Context {
     Process* procs;
 } Context;
 
-void append_msg(MessageQueue* queue, int from, int to, char msg[128])
+void append_msg(MessageQueue* queue, int from, int to, Message* new)
 {
-    Message* new = calloc(1, sizeof(Message));
-    memcpy(
-        new->data,
-        msg,
-        128);
     new->from_id = from;
     new->to_id = to;
     if (!queue->head) {
@@ -81,7 +76,12 @@ void send(Coroutine* self, Ctx_p ctx, int recipent_id, char msg[128])
     Context* context = (Context*)ctx;
     self->c_state = BLOCKED;
 
-    append_msg(context->msg_queue, context->c_id, recipent_id, msg);
+    Message* new = calloc(1, sizeof(Message));
+    memcpy(
+        new->data,
+        msg,
+        128);
+    append_msg(context->msg_queue, context->c_id, recipent_id, new);
     context->procs[recipent_id - 1].flags |= MESSAGE_PENDING;
     longjmp(*context->restart, context->c_id);
 }
@@ -241,16 +241,27 @@ Message* pop_msg(MessageQueue* queue)
 
 void deliver_messages(MessageQueue* mq, Process* procs, int procs_sz)
 {
+    Message* delay_stack[128] = { };
+    int dp = -1;
     while (mq->head) {
         Message* msg = pop_msg(mq);
         Process* to = &procs[msg->to_id - 1];
         Process* from = &procs[msg->from_id - 1];
-        to->msg = msg;
+        if (to->msg) {
+            delay_stack[++dp] = msg;
+            continue;
+        } else {
+            to->msg = msg;
+        }
         to->co.c_state = READY;
         from->co.c_state = READY;
         if (to->recv_buf) {
             recv_impl(&to->co, to, to->recv_buf);
         }
+    }
+    while(dp >= 0){
+        Message* delayed = delay_stack[--dp];
+        append_msg(mq, delayed->from_id, delayed->to_id, delayed);
     }
 }
 
