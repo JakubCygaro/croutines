@@ -37,6 +37,7 @@ typedef struct Process {
     Coroutine co;
     int flags;
     Message* msg;
+    char* recv_buf;
     struct Process *next, *prev;
     int id;
 } Process;
@@ -84,53 +85,79 @@ void send(Coroutine* self, Ctx_p ctx, int recipent_id, char msg[128])
     context->procs[recipent_id - 1].flags |= MESSAGE_PENDING;
     longjmp(*context->restart, context->c_id);
 }
-void recv(Coroutine* self, Ctx_p ctx, char out[128])
+void recv_impl(Coroutine* self, Process* proc, char out[128])
 {
-    Context* context = (Context*)ctx;
-    Process* proc = &context->procs[context->c_id - 1];
+    proc->recv_buf = out;
     if ((proc->flags & MESSAGE_PENDING) == MESSAGE_PENDING || proc->msg != NULL) {
-        memcpy(out,
+        memcpy(proc->recv_buf,
             proc->msg->data,
             128);
         self->c_state = READY;
         free(proc->msg);
+        proc->msg = NULL;
+        proc->recv_buf = NULL;
     } else {
         proc->flags |= AWAITING_MESSAGE;
         self->c_state = BLOCKED;
     }
+}
+void recv(Coroutine* self, Ctx_p ctx, char out[128])
+{
+    Context* context = (Context*)ctx;
+    Process* proc = &context->procs[context->c_id - 1];
+    recv_impl(self, proc, out);
     longjmp(*context->restart, context->c_id);
 }
 
-typedef enum SenderState {
-    BeforeSent,
-    AfterSent,
+typedef enum SenderStateEnum {
+    SBeforeSent,
+    SAfterSent,
+    SAfterResponse,
+} SenderStateEnum;
+
+typedef struct SenderState {
+    SenderStateEnum sstate;
+    char* buf;
 } SenderState;
 
 void sender(Coroutine* self, Ctx_p ctx)
 {
+    SenderState* state = (SenderState*)self->state;
     char msg[128] = "Hello, World!";
-    switch (*(SenderState*)self->state) {
-    case BeforeSent:
+    switch (state->sstate) {
+    case SBeforeSent:
         printf("SENDER => Sending message: '%s'\n", msg);
-        *((SenderState*)self->state) = AfterSent;
+        state->sstate = SAfterSent;
         send(self, ctx, 2, msg);
         break;
-    case AfterSent:
+    case SAfterSent:
+        printf("SENDER => Awaiting response\n");
+        state->sstate = SAfterResponse;
+        recv(self, ctx, state->buf);
+        break;
+    case SAfterResponse:
+        printf("SENDER => Got response: '%s'\n", state->buf);
+        printf("SENDER => DONE\n");
         self->c_state = DONE;
+        break;
     }
 }
 
 Coroutine make_sender()
 {
+    SenderState* state = calloc(1, sizeof(SenderState));
+    state->buf = calloc(128, sizeof(char));
+    state->sstate = SBeforeSent;
     return (Coroutine) {
         .c_state = READY,
-        .state = calloc(1, sizeof(SenderState)),
+        .state = state,
         .poll = sender,
     };
 }
 typedef enum ReceiverStateEnum {
-    BeforeReceive,
-    AfterReceive,
+    RBeforeReceive,
+    RAfterReceive,
+    RAfterRespond,
 } ReceiverStateEnum;
 
 typedef struct ReceiverState {
@@ -140,15 +167,25 @@ typedef struct ReceiverState {
 
 void receiver(Coroutine* self, Ctx_p ctx)
 {
-    switch (((ReceiverState*)self->state)->state_enum) {
-    case BeforeReceive:
-        ((ReceiverState*)self->state)->state_enum = AfterReceive;
-        recv(self, ctx, ((ReceiverState*)self->state)->buf);
+    ReceiverState* state = self->state;
+    char resp[128] = "This is a response message";
+    switch (state->state_enum) {
+    case RBeforeReceive:
+        state->state_enum = RAfterReceive;
+        recv(self, ctx, state->buf);
         break;
-    case AfterReceive:
+    case RAfterReceive:
         printf("RECEIVER => Received message: '%s'\n",
-            ((ReceiverState*)self->state)->buf);
+            state->buf);
+        printf("RECEIVER => Responding with: '%s'\n",
+            resp);
+        state->state_enum = RAfterRespond;
+        send(self, ctx, 1, resp);
+        break;
+    case RAfterRespond:
+        printf("RECEIVER => DONE\n");
         self->c_state = DONE;
+        break;
     }
 }
 
@@ -156,7 +193,7 @@ Coroutine make_receiver()
 {
     ReceiverState* state = calloc(1, sizeof(ReceiverState));
     state->buf = calloc(128, sizeof(char));
-    state->state_enum = BeforeReceive;
+    state->state_enum = RBeforeReceive;
     return (Coroutine) {
         .c_state = READY,
         .state = state,
@@ -206,9 +243,14 @@ void deliver_messages(MessageQueue* mq, Process* procs, int procs_sz)
 {
     while (mq->head) {
         Message* msg = pop_msg(mq);
-        procs[msg->to_id - 1].msg = msg;
-        procs[msg->to_id - 1].co.c_state = READY;
-        procs[msg->from_id - 1].co.c_state = READY;
+        Process* to = &procs[msg->to_id - 1];
+        Process* from = &procs[msg->from_id - 1];
+        to->msg = msg;
+        to->co.c_state = READY;
+        from->co.c_state = READY;
+        if (to->recv_buf) {
+            recv_impl(&to->co, to, to->recv_buf);
+        }
     }
 }
 
