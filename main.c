@@ -110,20 +110,20 @@ void* make_receiver(cco_Co_handle* recieve_from)
 
 int main(void)
 {
-    cco_Sched sched = cco_Sched_new();
+    cco_Sched* sched = cco_Sched_new();
     cco_Co_handle s = { };
     cco_Co_handle r = { };
     s = cco_Sched_add_coroutine(
-        &sched,
+        sched,
         cco_make_coroutine(
             make_sender(&r),
             sender));
     r = cco_Sched_add_coroutine(
-        &sched,
+        sched,
         cco_make_coroutine(
             make_receiver(&s),
             receiver));
-    cco_Sched_run(&sched);
+    cco_Sched_run(sched);
     cco_Sched_free(sched);
     return 0;
 }

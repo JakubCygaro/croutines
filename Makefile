@@ -1,5 +1,5 @@
 CFLAGS=-Wall -Wextra
-OBJS=main.o
+OBJS=main.o cco.o
 
 all: main
 
