@@ -11,17 +11,22 @@ void spawn1(cco_Coroutine* self, cco_Ctx_p ctx)
 {
     char a = 69;
     char b = 67;
-    char c = 69;
-    char* dummy = "SPAWN";
+    char c = 123;
+    char yield_counter = 1;
     printf("SPAWN1 => I have been spawned\n");
+    printf("SPAWN1 => %d %d %d\n", a, b, c);
     cco_yield(self, ctx);
-    printf("SPAWN1 => Yielded 1 time\n");
+    printf("SPAWN1 => Yielded %d times\n", yield_counter++);
+    printf("SPAWN1 => %d %d %d\n", a, b, c);
     cco_yield(self, ctx);
-    printf("SPAWN1 => Yielded 2 times\n");
+    printf("SPAWN1 => Yielded %d times\n", yield_counter++);
+    printf("SPAWN1 => %d %d %d\n", a, b, c);
     cco_yield(self, ctx);
-    printf("SPAWN1 => Yielded 3 times\n");
+    printf("SPAWN1 => Yielded %d times\n", yield_counter++);
+    printf("SPAWN1 => %d %d %d\n", a, b, c);
     cco_yield(self, ctx);
-    printf("SPAWN1 => Yielded 4 times, now will return\n");
+    printf("SPAWN1 => Yielded %d times\n", yield_counter++);
+    printf("SPAWN1 => %d %d %d\n", a, b, c);
     cco_return(self, ctx);
 }
 void spawn2(cco_Coroutine* self, cco_Ctx_p ctx)

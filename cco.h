@@ -37,17 +37,6 @@ typedef struct cco_Coroutine {
         .poll = POLL                    \
     }
 
-#define cco_block(cco_Coroutine_ptr, cco_Ctx_p) \
-    cco_Coroutine_ptr->c_state = cco_BLOCKED;     \
-    cco_yield_impl(cco_Coroutine_ptr, cco_Ctx_p)
-
-#define cco_yield(cco_Coroutine_ptr, cco_Ctx_p) \
-    cco_Coroutine_ptr->c_state = cco_READY;     \
-    cco_yield_impl(cco_Coroutine_ptr, cco_Ctx_p)
-
-#define cco_return(cco_Coroutine_ptr, cco_Ctx_p) \
-    cco_Coroutine_ptr->c_state = cco_DONE;       \
-    cco_yield_impl(cco_Coroutine_ptr, cco_Ctx_p)
 
 typedef struct cco_Process cco_Process;
 typedef struct cco_ProcQueue cco_ProcQueue;
@@ -62,7 +51,9 @@ void cco_Sched_free(cco_Sched* sched);
 void cco_send(cco_Coroutine* self, cco_Ctx_p ctx, cco_Co_handle co, cco_message_t msg);
 void cco_recv(cco_Coroutine* self, cco_Ctx_p ctx, cco_message_t out);
 
-void cco_yield_impl(cco_Coroutine* co, cco_Ctx_p ctx);
+void cco_block(cco_Coroutine* co, cco_Ctx_p ctx);
+void cco_yield(cco_Coroutine* co, cco_Ctx_p ctx);
+void cco_return(cco_Coroutine* co, cco_Ctx_p ctx);
 
 cco_Co_handle cco_spawn(cco_Ctx_p ctx, cco_Coroutine spawn);
 

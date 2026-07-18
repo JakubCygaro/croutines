@@ -1,11 +1,9 @@
 format ELF64
 
 public cco_save_regs
-public cco_load_regs
 public cco_save_stack
 public cco_load_stack
 public cco_yield_return
-public cco_save_yield_return
 public cco_get_yield_return
 
 section '.text' executable
@@ -13,15 +11,23 @@ section '.text' executable
 ;; void cco_save_regs(uint64_t* sp, uint64_t* bp);
 cco_save_regs:
     ; int3
-    mov QWORD [rdi], rsp
-    mov QWORD [rsi], rbp
-    ret
+    ;; rsp now points to the return address
+    pop rax
+    ;; rbp now is the stackframe of cco_yield_impl
+    ;; rbp+8 would point to rbp of the function that called cco_yield_impl
+    ;; rbp+16 would point to the top of the stack of the function that called cco_yield_impl
+    mov rbx, [rbp] ;; previous stackframe
+    mov rcx, rbp
+    add rcx, 16 ;; top of the previous stackframe
+    mov QWORD [rdi], rcx ;; previous rsp
+    mov QWORD [rsi], rbx ;; previous rbp
+    jmp rax
 
 ;; void cco_load_regs(uint64_t sp, uint64_t bp);
 cco_load_regs:
     ; int3
-    mov rsp, rdi
-    mov rbp, rsi
+    mov rsp, rdi ;; load rsp
+    mov rbp, rsi ;; load rbp
     ret
 
 ;; void cco_save_stack(char* into, uint32_t bytes);
@@ -52,23 +58,15 @@ cco_load_stack:
     ;; we do not pop rbp, as it was never pushed
     ret
 
-;; void cco_save_yield_return(void** into);
-cco_save_yield_return:
-    ; int3
-    mov rax, QWORD [rsp+8]
-    mov QWORD [rsi], rax
-    xor rax, rax
-    ret
-
 ;; long cco_get_yield_return();
 cco_get_yield_return:
     ; int3
     mov rax, QWORD [rbp+8]
     ret
 
-;; void cco_yield_return(void* ret);
+;; void cco_yield_return(uint64_t sp, uint64_t bp, void* ret);
 cco_yield_return:
     ; int3
-    ; push rdi
-    ; ret
-    jmp rdi
+    mov rsp, rdi ;; load rsp
+    mov rbp, rsi ;; load rbp
+    jmp rdx ;; jump back into the suspended procedure

@@ -1,18 +1,24 @@
 #include "cco.h"
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 
+// save the state of the stack pointer and the base pointer into sp and bp
 extern void cco_save_regs(uint64_t* sp, uint64_t* bp);
-extern void cco_load_regs(uint64_t sp, uint64_t bp);
 
-extern void cco_save_stack(char* into, uint32_t bytes);
-extern void cco_load_stack(char* from, uint32_t bytes);
+// copy N bytes of the stack into dest
+extern void cco_save_stack(char* dest, uint32_t N);
+// load N bytes of stack from src
+extern void cco_load_stack(char* src, uint32_t N);
 
-extern void cco_save_yield_return(void** into);
-extern void cco_yield_return(void* ret);
+// load the stack pointer and base pointer of a suspened procedure
+// then jump into it via ret
+extern void cco_yield_return(uint64_t sp, uint64_t bp, void* ret);
+// get the return address for a suspended procedure
 extern uint64_t cco_get_yield_return(void);
 
-extern int cco_test(int a, int b);
+#define this_proc(context) (context->procs[context->c_id - 1])
 
 typedef char cco_co_stackframe_t[CCO_CO_STACKF_SIZE];
 
@@ -213,6 +219,8 @@ cco_Co_handle cco_Sched_add_coroutine(cco_Sched* sched, cco_Coroutine co)
     proc->co = co;
     sched->procs[sched->proc_count++] = proc;
     proc->id = sched->proc_count;
+    // for testing stack layout
+    // memset(proc->stackf, 69, CCO_CO_STACKF_SIZE);
     cco_append_proc(&sched->pqueue, proc);
     return (void*)(long)proc->id;
 }
@@ -231,30 +239,36 @@ void cco_Sched_free(cco_Sched* sched)
     }
     free(sched);
 }
-static void cco_stage(cco_Process* proc, cco_Context* ctx)
-{
-    if (proc->yield_return) {
-        // cco_load_stack(proc->stackf + CCO_CO_STACKF_SIZE,
-        //     CCO_CO_STACKF_SIZE);
-        // cco_load_regs(proc->regs.sp, proc->regs.bp);
-        cco_yield_return(proc->yield_return);
-    } else {
-        proc->co.poll(
-            &proc->co,
-            ctx);
-    }
-}
 static void cco_store(cco_Process* proc)
 {
-    // char dummy = 69;
     // since the stack grows downward, we need a pointer to the end
     // of the stackf buffer, otherwise we will wirte to fuck knows where
     cco_save_stack(proc->stackf + CCO_CO_STACKF_SIZE,
         CCO_CO_STACKF_SIZE);
 }
+static void cco_stage(cco_Process* proc, cco_Context* ctx)
+{
+    if (proc->yield_return) {
+        cco_load_stack(proc->stackf + CCO_CO_STACKF_SIZE,
+            CCO_CO_STACKF_SIZE);
+        cco_yield_return(proc->regs.sp, proc->regs.bp, proc->yield_return);
+    } else {
+        // // for testing stack layout
+        // cco_load_stack(proc->stackf + CCO_CO_STACKF_SIZE,
+        //     CCO_CO_STACKF_SIZE);
+        proc->co.poll(
+            &proc->co,
+            ctx);
+    }
+}
 void cco_Sched_run(cco_Sched* sched)
 {
     jmp_buf jmp_buffer = { };
+    cco_Context* ctx = calloc(1, sizeof(cco_Context));
+    ctx->restart = &jmp_buffer;
+    ctx->msg_queue = &sched->mq;
+    ctx->procs = sched->procs;
+    ctx->sched = sched;
     while (1) {
         int ret = setjmp(jmp_buffer);
         if (ret != 0) {
@@ -283,15 +297,10 @@ void cco_Sched_run(cco_Sched* sched)
             cco_Process_free(next);
             continue;
         }
-        cco_Context ctx = {
-            .c_id = next->id,
-            .restart = &jmp_buffer,
-            .msg_queue = &sched->mq,
-            .procs = sched->procs,
-            .sched = sched,
-        };
-        cco_stage(next, &ctx);
+        ctx->c_id = next->id;
+        cco_stage(next, ctx);
     }
+    free(ctx);
 }
 void cco_recv(cco_Coroutine* self, cco_Ctx_p ctx, cco_message_t out)
 {
@@ -302,20 +311,50 @@ void cco_recv(cco_Coroutine* self, cco_Ctx_p ctx, cco_message_t out)
         cco_block(self, ctx);
     }
 }
-#define this_proc(context) (context->procs[context->c_id - 1])
+// this is a macro so that we can preserve the calling stackframe
+// without creating a new one on top of it.
+// This code will execute inside the stackframe of cco_block, cco_yield and cco_return.
+// The external assembly written instructions depend on that being the case
+// the yielding subroutine must be immediately below the yield function.
+#define cco_yield_impl(co, ctx)       \
+    cco_Context* context = (cco_Context*)ctx;        \
+    cco_Process* p = this_proc(context);             \
+    cco_save_regs(                                   \
+        &p->regs.sp,                                 \
+        &p->regs.bp);                                \
+    p->yield_return = (void*)cco_get_yield_return(); \
+    longjmp(*context->restart, context->c_id)
 
-void cco_yield_impl(cco_Coroutine* co, cco_Ctx_p ctx)
+void cco_block(cco_Coroutine* co, cco_Ctx_p ctx)
 {
-    cco_Context* context = (cco_Context*)ctx;
-
-    cco_Process* p = this_proc(context);
-    cco_save_regs(
-        &p->regs.sp,
-        &p->regs.bp);
-    p->yield_return = (void*)cco_get_yield_return();
-
-    longjmp(*context->restart, context->c_id);
+    co->c_state = cco_BLOCKED;
+    cco_yield_impl(co, ctx);
 }
+
+void cco_yield(cco_Coroutine* co, cco_Ctx_p ctx)
+{
+    co->c_state = cco_READY;
+    cco_yield_impl(co, ctx);
+}
+
+void cco_return(cco_Coroutine* co, cco_Ctx_p ctx)
+{
+    co->c_state = cco_DONE;
+    cco_yield_impl(co, ctx);
+}
+
+// void cco_yield_impl(cco_Coroutine* co, cco_Ctx_p ctx)
+// {
+//     cco_Context* context = (cco_Context*)ctx;
+//
+//     cco_Process* p = this_proc(context);
+//     cco_save_regs(
+//         &p->regs.sp,
+//         &p->regs.bp);
+//     p->yield_return = (void*)cco_get_yield_return();
+//
+//     longjmp(*context->restart, context->c_id);
+// }
 void cco_send(cco_Coroutine* self, cco_Ctx_p ctx, cco_Co_handle co, cco_message_t msg)
 {
     cco_Context* context = (cco_Context*)ctx;
