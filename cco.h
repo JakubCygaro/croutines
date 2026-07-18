@@ -12,7 +12,6 @@
 // size of a coroutine stack
 #define CCO_CO_STACKF_SIZE 1024
 
-typedef char cco_message_t[CCO_MESSAGE_SIZE];
 
 typedef enum cco_CState {
     cco_READY,
@@ -21,8 +20,12 @@ typedef enum cco_CState {
 } cco_CState;
 
 typedef struct cco_Coroutine cco_Coroutine;
-
+typedef char cco_message_t[CCO_MESSAGE_SIZE];
 typedef void* cco_Ctx_p;
+typedef struct cco_Process cco_Process;
+typedef struct cco_ProcQueue cco_ProcQueue;
+typedef struct cco_Sched cco_Sched;
+typedef void* cco_Co_handle;
 
 typedef void (*cco_poll_fn)(cco_Coroutine* self, cco_Ctx_p ctx);
 
@@ -40,10 +43,6 @@ typedef struct cco_Coroutine {
         .start = START                   \
     }
 
-typedef struct cco_Process cco_Process;
-typedef struct cco_ProcQueue cco_ProcQueue;
-typedef struct cco_Sched cco_Sched;
-typedef void* cco_Co_handle;
 
 cco_Sched* cco_Sched_new();
 cco_Co_handle cco_Sched_add_coroutine(cco_Sched* sched, cco_Coroutine co);

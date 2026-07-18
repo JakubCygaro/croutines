@@ -169,6 +169,8 @@ static cco_Message* cco_pop_msg(cco_MessageQueue* queue)
     queue->head = queue->head->next;
     return pop;
 }
+#define is_blocked(proc) (proc->co.c_state == cco_BLOCKED)
+#define is_ready(proc) (proc->co.c_state == cco_READY)
 
 static void cco_deliver_messages(
     cco_MessageQueue* mq,
@@ -187,7 +189,7 @@ static void cco_deliver_messages(
         }
         cco_Process* to = procs[msg->to_id - 1];
         cco_Process* from = procs[msg->from_id - 1];
-        if (to->pending_msg) {
+        if (to->pending_msg || (!is_blocked(to) || !is_blocked(from))) {
             if (dp >= CCO_CO_STACKF_SIZE)
                 panic("delayed message buffer overflow, buffer size is %d",
                     CCO_DELAY_STACK_SIZE);
@@ -200,7 +202,7 @@ static void cco_deliver_messages(
         from->co.c_state = cco_READY;
     }
     while (dp >= 0) {
-        cco_Message* delayed = delay_stack[--dp];
+        cco_Message* delayed = delay_stack[dp--];
         cco_append_msg(mq, delayed->from_id, delayed->to_id, delayed);
     }
 }
