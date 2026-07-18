@@ -29,17 +29,16 @@ typedef void (*cco_poll_fn)(cco_Coroutine* self, cco_Ctx_p ctx);
 typedef struct cco_Coroutine {
     void* state;
     cco_CState c_state;
-    cco_poll_fn poll;
+    cco_poll_fn start;
 } cco_Coroutine;
 
-#define cco_make_coroutine(STATE, POLL) \
-    (cco_Coroutine)                     \
-    {                                   \
-        .state = STATE,                 \
-        .c_state = cco_READY,           \
-        .poll = POLL                    \
+#define cco_make_coroutine(STATE, START) \
+    (cco_Coroutine)                      \
+    {                                    \
+        .state = STATE,                  \
+        .c_state = cco_READY,            \
+        .start = START                   \
     }
-
 
 typedef struct cco_Process cco_Process;
 typedef struct cco_ProcQueue cco_ProcQueue;
@@ -54,7 +53,6 @@ void cco_Sched_free(cco_Sched* sched);
 void cco_send(cco_Coroutine* self, cco_Ctx_p ctx, cco_Co_handle co, cco_message_t msg);
 void cco_recv(cco_Coroutine* self, cco_Ctx_p ctx, cco_message_t out);
 
-void cco_block(cco_Coroutine* co, cco_Ctx_p ctx);
 void cco_yield(cco_Coroutine* co, cco_Ctx_p ctx);
 void cco_return(cco_Coroutine* co, cco_Ctx_p ctx);
 

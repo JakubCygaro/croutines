@@ -1,4 +1,5 @@
 #include "cco.h"
+#include <stdarg.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -46,11 +47,11 @@ typedef struct MessageQueue {
 
 typedef struct cco_Process {
     cco_Coroutine co;
-    int flags;
+    // int flags;
     // the pending delivered message, NULL if none
     cco_Message* pending_msg;
     // where the scheduler should write a delivered message, NULL if nowhere
-    char* msg_recv;
+    // char* msg_recv;
     // next and previous process in the queue
     struct cco_Process *next, *prev;
     // id of the process, used for message passing
@@ -83,6 +84,17 @@ typedef struct Context {
     cco_Sched* sched;
 } cco_Context;
 
+static void panic(char* fmt, ...)
+{
+    va_list args = { 0 };
+    va_start(args, fmt);
+    fprintf(stderr, fmt, args);
+    va_end(args);
+    abort();
+}
+
+static void cco_block(cco_Coroutine* co, cco_Ctx_p ctx);
+
 static void cco_append_msg(cco_MessageQueue* queue, int from, int to, cco_Message* msg)
 {
     msg->from_id = from;
@@ -99,22 +111,29 @@ static void cco_append_msg(cco_MessageQueue* queue, int from, int to, cco_Messag
         msg->next = NULL;
     }
 }
-static int cco_recv_impl(cco_Coroutine* self, cco_Process* proc, cco_message_t out)
+// try to recieve a message into out, returns 1 on success and 0 if there is no
+// pending message, for the process
+static int cco_recv_impl(cco_Process* proc, cco_message_t out)
 {
-    proc->msg_recv = out;
-    if ((proc->flags & cco_MESSAGE_PENDING) == cco_MESSAGE_PENDING || proc->pending_msg != NULL) {
-        memcpy(proc->msg_recv,
+    if (proc->pending_msg != NULL) {
+        memcpy(out,
             proc->pending_msg->data,
             CCO_MESSAGE_SIZE);
-        self->c_state = cco_READY;
         free(proc->pending_msg);
         proc->pending_msg = NULL;
-        proc->msg_recv = NULL;
         return 1;
-    } else {
-        proc->flags |= cco_AWAITING_MESSAGE;
-        self->c_state = cco_BLOCKED;
+    } else
         return 0;
+}
+// block while waiting for a message
+void cco_recv(cco_Coroutine* self, cco_Ctx_p ctx, cco_message_t out)
+{
+    cco_Context* context = (cco_Context*)ctx;
+    cco_Process* proc = context->procs[context->c_id - 1];
+    int received = cco_recv_impl(proc, out);
+    if (!received) {
+        cco_block(self, ctx);
+        cco_recv_impl(proc, out);
     }
 }
 
@@ -156,26 +175,29 @@ static void cco_deliver_messages(
     cco_Process** procs,
     int procs_sz)
 {
-    (void)procs_sz;
     cco_Message* delay_stack[CCO_DELAY_STACK_SIZE] = { };
     int dp = -1;
     while (mq->head) {
         cco_Message* msg = cco_pop_msg(mq);
+        if (msg->to_id < 1 || msg->to_id > procs_sz) {
+            panic("message recipent of invalid process id (%d)\n", msg->to_id);
+        }
+        if (msg->from_id < 1 || msg->from_id > procs_sz) {
+            panic("message author of invalid process id (%d)\n", msg->from_id);
+        }
         cco_Process* to = procs[msg->to_id - 1];
         cco_Process* from = procs[msg->from_id - 1];
         if (to->pending_msg) {
+            if (dp >= CCO_CO_STACKF_SIZE)
+                panic("delayed message buffer overflow, buffer size is %d",
+                    CCO_DELAY_STACK_SIZE);
             delay_stack[++dp] = msg;
             continue;
         } else {
             to->pending_msg = msg;
         }
         to->co.c_state = cco_READY;
-        to->flags ^= cco_AWAITING_MESSAGE;
-        to->flags |= cco_MESSAGE_PENDING;
         from->co.c_state = cco_READY;
-        if (to->msg_recv) {
-            cco_recv_impl(&to->co, to, to->msg_recv);
-        }
     }
     while (dp >= 0) {
         cco_Message* delayed = delay_stack[--dp];
@@ -256,7 +278,7 @@ static void cco_stage(cco_Process* proc, cco_Context* ctx)
         // // for testing stack layout
         // cco_load_stack(proc->stackf + CCO_CO_STACKF_SIZE,
         //     CCO_CO_STACKF_SIZE);
-        proc->co.poll(
+        proc->co.start(
             &proc->co,
             ctx);
     }
@@ -282,10 +304,8 @@ void cco_Sched_run(cco_Sched* sched)
             break;
         }
         if (next->co.c_state == cco_BLOCKED) {
-            if ((next->flags & cco_MESSAGE_PENDING) != cco_MESSAGE_PENDING) {
-                cco_append_proc(&sched->pqueue, next);
-                continue;
-            }
+            cco_append_proc(&sched->pqueue, next);
+            continue;
         }
         if (next->co.c_state == cco_DONE) {
             int _this = next->id - 1;
@@ -302,21 +322,12 @@ void cco_Sched_run(cco_Sched* sched)
     }
     free(ctx);
 }
-void cco_recv(cco_Coroutine* self, cco_Ctx_p ctx, cco_message_t out)
-{
-    cco_Context* context = (cco_Context*)ctx;
-    cco_Process* proc = context->procs[context->c_id - 1];
-    int succ = cco_recv_impl(self, proc, out);
-    if (!succ) {
-        cco_block(self, ctx);
-    }
-}
 // this is a macro so that we can preserve the calling stackframe
 // without creating a new one on top of it.
 // This code will execute inside the stackframe of cco_block, cco_yield and cco_return.
 // The external assembly written instructions depend on that being the case
 // the yielding subroutine must be immediately below the yield function.
-#define cco_yield_impl(co, ctx)       \
+#define cco_yield_impl(co, ctx)                      \
     cco_Context* context = (cco_Context*)ctx;        \
     cco_Process* p = this_proc(context);             \
     cco_save_regs(                                   \
@@ -325,7 +336,7 @@ void cco_recv(cco_Coroutine* self, cco_Ctx_p ctx, cco_message_t out)
     p->yield_return = (void*)cco_get_yield_return(); \
     longjmp(*context->restart, context->c_id)
 
-void cco_block(cco_Coroutine* co, cco_Ctx_p ctx)
+static void cco_block(cco_Coroutine* co, cco_Ctx_p ctx)
 {
     co->c_state = cco_BLOCKED;
     cco_yield_impl(co, ctx);
@@ -342,23 +353,9 @@ void cco_return(cco_Coroutine* co, cco_Ctx_p ctx)
     co->c_state = cco_DONE;
     cco_yield_impl(co, ctx);
 }
-
-// void cco_yield_impl(cco_Coroutine* co, cco_Ctx_p ctx)
-// {
-//     cco_Context* context = (cco_Context*)ctx;
-//
-//     cco_Process* p = this_proc(context);
-//     cco_save_regs(
-//         &p->regs.sp,
-//         &p->regs.bp);
-//     p->yield_return = (void*)cco_get_yield_return();
-//
-//     longjmp(*context->restart, context->c_id);
-// }
 void cco_send(cco_Coroutine* self, cco_Ctx_p ctx, cco_Co_handle co, cco_message_t msg)
 {
     cco_Context* context = (cco_Context*)ctx;
-
     cco_Message* new_msg = (cco_Message*)calloc(1, sizeof(cco_Message));
     memcpy(
         new_msg->data,
@@ -366,7 +363,6 @@ void cco_send(cco_Coroutine* self, cco_Ctx_p ctx, cco_Co_handle co, cco_message_
         CCO_MESSAGE_SIZE);
     int recipent_id = (long)co;
     cco_append_msg(context->msg_queue, context->c_id, recipent_id, new_msg);
-    context->procs[recipent_id - 1]->flags |= cco_MESSAGE_PENDING;
     cco_block(self, context);
 }
 cco_Co_handle cco_spawn(cco_Ctx_p ctx, cco_Coroutine spawn)

@@ -1,7 +1,7 @@
 CFLAGS=-Wall -Wextra -g
 OBJS=main.o libcco.a
 ASM=fasm
-ASMFLAGS=-s cco_asm.dbg
+ASMFLAGS=
 CCO_LIB_OBJS=cco.o cco_asm.o
 ARCH=LINUX_X86_68
 
