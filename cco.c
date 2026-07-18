@@ -150,6 +150,7 @@ static void cco_deliver_messages(
     cco_Process** procs,
     int procs_sz)
 {
+    (void)procs_sz;
     cco_Message* delay_stack[CCO_DELAY_STACK_SIZE] = { };
     int dp = -1;
     while (mq->head) {

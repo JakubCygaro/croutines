@@ -27,25 +27,29 @@ cco_load_regs:
 ;; void cco_save_stack(char* into, uint32_t bytes);
 cco_save_stack:
     ; int3
-    ;; do not create a new stackframe
+    mov rax, rsp ;; stack pointer of the previous frame
+    sub rax, 8   ;; this is where the new stackframe would start
     mov ecx, esi ;; counter
     mov rdi, rdi ;; dest
-    mov rsi, rbp ;; source
+    mov rsi, rax ;; source
     std
     rep movsb
     cld
+    ;; we do not pop rbp, as it was never pushed
     ret
 
 ;; void cco_load_stack(char* from, uint32_t bytes);
 cco_load_stack:
     ; int3
-    ;; do not create a new stackframe
+    mov rax, rsp ;; stack pointer of the previous frame
+    sub rax, 8   ;; this is where the new stackframe would start
     mov ecx, esi ;; counter
     mov rsi, rdi ;; source
-    mov rdi, rbp ;; dest
+    mov rdi, rax ;; dest -> where the current stackframe base would be
     std
     rep movsb
     cld
+    ;; we do not pop rbp, as it was never pushed
     ret
 
 ;; void cco_save_yield_return(void** into);
@@ -62,8 +66,9 @@ cco_get_yield_return:
     mov rax, QWORD [rbp+8]
     ret
 
-;; void cco_yield_return(uint64_t bp, uint64_t sp, void* ret);
+;; void cco_yield_return(void* ret);
 cco_yield_return:
     ; int3
-    push rdi
-    ret
+    ; push rdi
+    ; ret
+    jmp rdi
