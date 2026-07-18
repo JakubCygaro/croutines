@@ -5,9 +5,12 @@
 #include <stdlib.h>
 
 #define CCO_SCHED_INIT_PROC_COUNT 10
+// size of a message to be passed
 #define CCO_MESSAGE_SIZE 128
+// size for the stack of delayed messages
 #define CCO_DELAY_STACK_SIZE 128
-#define CCO_CO_STACKF_SIZE 128
+// size of a coroutine stack
+#define CCO_CO_STACKF_SIZE 1024
 
 typedef char cco_message_t[CCO_MESSAGE_SIZE];
 

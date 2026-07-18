@@ -1,10 +1,13 @@
 format ELF64
+
 public cco_save_regs
 public cco_save_stack
 public cco_load_stack
 public cco_yield_return
 public cco_get_yield_return
+
 section '.text' executable
+
 ;; void cco_save_regs(uint64_t* sp, uint64_t* bp);
 cco_save_regs:
     ; int3
@@ -19,17 +22,19 @@ cco_save_regs:
     mov QWORD [rdi], rcx ;; previous rsp
     mov QWORD [rsi], rbx ;; previous rbp
     jmp rax
+
 ;; void cco_load_regs(uint64_t sp, uint64_t bp);
 cco_load_regs:
     ; int3
     mov rsp, rdi ;; load rsp
     mov rbp, rsi ;; load rbp
     ret
+
 ;; void cco_save_stack(char* into, uint32_t bytes);
 cco_save_stack:
     ; int3
     mov rax, rsp ;; stack pointer of the previous frame
-    sub rax, 8 ;; this is where the new stackframe would start
+    sub rax, 8   ;; this is where the new stackframe would start
     mov ecx, esi ;; counter
     mov rdi, rdi ;; dest
     mov rsi, rax ;; source
@@ -38,11 +43,12 @@ cco_save_stack:
     cld
     ;; we do not pop rbp, as it was never pushed
     ret
+
 ;; void cco_load_stack(char* from, uint32_t bytes);
 cco_load_stack:
     ; int3
     mov rax, rsp ;; stack pointer of the previous frame
-    sub rax, 8 ;; this is where the new stackframe would start
+    sub rax, 8   ;; this is where the new stackframe would start
     mov ecx, esi ;; counter
     mov rsi, rdi ;; source
     mov rdi, rax ;; dest -> where the current stackframe base would be
@@ -51,11 +57,13 @@ cco_load_stack:
     cld
     ;; we do not pop rbp, as it was never pushed
     ret
+
 ;; long cco_get_yield_return();
 cco_get_yield_return:
     ; int3
     mov rax, QWORD [rbp+8]
     ret
+
 ;; void cco_yield_return(uint64_t sp, uint64_t bp, void* ret);
 cco_yield_return:
     ; int3

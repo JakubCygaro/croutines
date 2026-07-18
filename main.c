@@ -7,6 +7,11 @@ void* make_spawn()
 {
     return NULL;
 }
+void spawn1_sub(cco_Coroutine* self, cco_Ctx_p ctx)
+{
+    printf("SPAWN1_sub => Hello there!\n");
+    cco_yield(self, ctx);
+}
 void spawn1(cco_Coroutine* self, cco_Ctx_p ctx)
 {
     char a = 69;
@@ -18,6 +23,7 @@ void spawn1(cco_Coroutine* self, cco_Ctx_p ctx)
     cco_yield(self, ctx);
     printf("SPAWN1 => Yielded %d times\n", yield_counter++);
     printf("SPAWN1 => %d %d %d\n", a, b, c);
+    spawn1_sub(self, ctx);
     cco_yield(self, ctx);
     printf("SPAWN1 => Yielded %d times\n", yield_counter++);
     printf("SPAWN1 => %d %d %d\n", a, b, c);
@@ -66,29 +72,6 @@ void sender(cco_Coroutine* self, cco_Ctx_p ctx)
     printf("SENDER => Got response: '%s'\n", state->buf);
     printf("SENDER => DONE\n");
     cco_return(self, ctx);
-    // switch (state->sstate) {
-    // case SBeforeSent:
-    //     printf("SENDER => Spawning spawn1\n");
-    //     cco_spawn(
-    //         ctx,
-    //         cco_make_coroutine(
-    //             make_spawn(),
-    //             spawn1));
-    //     printf("SENDER => Sending message: '%s'\n", msg);
-    //     state->sstate = SAfterSent;
-    //     cco_send(self, ctx, *state->send_to, msg);
-    //     break;
-    // case SAfterSent:
-    //     printf("SENDER => Awaiting response\n");
-    //     state->sstate = SAfterResponse;
-    //     cco_recv(self, ctx, state->buf);
-    //     break;
-    // case SAfterResponse:
-    //     printf("SENDER => Got response: '%s'\n", state->buf);
-    //     printf("SENDER => DONE\n");
-    //     cco_return(self, ctx);
-    //     break;
-    // }
 }
 
 void* make_sender(cco_Co_handle* send_to)
@@ -124,24 +107,6 @@ void receiver(cco_Coroutine* self, cco_Ctx_p ctx)
     cco_send(self, ctx, *state->receive_from, resp);
     printf("RECEIVER => DONE\n");
     cco_return(self, ctx);
-    // switch (state->state_enum) {
-    // case RBeforeReceive:
-    //     state->state_enum = RAfterReceive;
-    //     cco_recv(self, ctx, state->buf);
-    //     break;
-    // case RAfterReceive:
-    //     printf("RECEIVER => Received message: '%s'\n",
-    //         state->buf);
-    //     printf("RECEIVER => Responding with: '%s'\n",
-    //         resp);
-    //     state->state_enum = RAfterRespond;
-    //     cco_send(self, ctx, *state->receive_from, resp);
-    //     break;
-    // case RAfterRespond:
-    //     printf("RECEIVER => DONE\n");
-    //     cco_return(self, ctx);
-    //     break;
-    // }
 }
 
 void* make_receiver(cco_Co_handle* recieve_from)
@@ -156,18 +121,18 @@ void* make_receiver(cco_Co_handle* recieve_from)
 int main(void)
 {
     cco_Sched* sched = cco_Sched_new();
-    // cco_Co_handle s = { };
-    // cco_Co_handle r = { };
-    // s = cco_Sched_add_coroutine(
-    //     sched,
-    //     cco_make_coroutine(
-    //         make_sender(&r),
-    //         sender));
-    // r = cco_Sched_add_coroutine(
-    //     sched,
-    //     cco_make_coroutine(
-    //         make_receiver(&s),
-    //         receiver));
+    cco_Co_handle s = { };
+    cco_Co_handle r = { };
+    s = cco_Sched_add_coroutine(
+        sched,
+        cco_make_coroutine(
+            make_sender(&r),
+            sender));
+    r = cco_Sched_add_coroutine(
+        sched,
+        cco_make_coroutine(
+            make_receiver(&s),
+            receiver));
     cco_Sched_add_coroutine(
         sched,
         cco_make_coroutine(
