@@ -88,6 +88,7 @@ static void panic(char* fmt, ...)
 {
     va_list args = { 0 };
     va_start(args, fmt);
+    fprintf(stderr, "cco panic: ");
     fprintf(stderr, fmt, args);
     va_end(args);
     abort();
@@ -296,6 +297,9 @@ void cco_Sched_run(cco_Sched* sched)
     while (1) {
         int ret = setjmp(jmp_buffer);
         if (ret != 0) {
+            if (ret < 1 || ret > sched->proc_count){
+                panic("yielding coroutine of invalid id (%d)\n", ret);
+            }
             cco_store(sched->procs[ret - 1]);
             cco_append_proc(&sched->pqueue, sched->procs[ret - 1]);
         }
