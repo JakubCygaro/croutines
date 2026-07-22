@@ -1,12 +1,12 @@
-format PE64
+format MS64 COFF
 
-; export cco_save_regs
-; export cco_save_stack
-; export cco_load_stack
-; export cco_yield_return
-; export cco_get_yield_return
+public cco_save_regs
+public cco_save_stack
+public cco_load_stack
+public cco_yield_return
+public cco_get_yield_return
 
-section '.text' code readable executable export
+section '.text' code readable executable
 
 ;; void cco_save_regs(uint64_t* sp, uint64_t* bp);
 cco_save_regs:
